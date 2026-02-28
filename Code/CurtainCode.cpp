@@ -5,7 +5,7 @@
 #include <time.h>
 #include <cstring> // for strcmp
 
-// ===== CONFIG =====
+// CONFIG
 #define DHTPIN           15
 #define DHTTYPE          DHT11
 
@@ -30,14 +30,16 @@ const float TEMP_HIGH_C = 22.0f;
 const float TEMP_LOW_C  = 18.0f;
 const float PHOTO_VOLT_THRESHOLD = 2.5f;
 
-const uint32_t SENSOR_INTERVAL_SECONDS = 5; // demo only; set to 600 for normal use
+const uint32_t SENSOR_INTERVAL_SECONDS = 600; 
 const uint8_t OVERRIDE_HOURS_DEFAULT = 2;
 
 const char* PREF_NS = "blinds";
 
+// BLE server variables
 NimBLEServer* pServer;
 NimBLEAdvertising* pAdv;
 
+// BLE callbacks
 class ServerCB : public NimBLEServerCallbacks {
 public:
     void onConnect(NimBLEServer* pServer, NimBLEConnInfo& connInfo) override {
@@ -50,7 +52,7 @@ public:
     }
 };
 
-// ===== TIME BLOCKS (defaults) =====
+// TIME BLOCKS (defaults)
 int MORNING_START = 6;
 int MORNING_END   = 9;
 
@@ -67,6 +69,7 @@ int SLEEP_END     = 6;
 static BLEUUID svcUUID("6E400001-B5A3-F393-E0A9-E50E24DCCA9E");
 static BLEUUID cmdUUID("6E400002-B5A3-F393-E0A9-E50E24DCCA9E");
 
+// DHT sensor and preferences
 DHT dht(DHTPIN, DHTTYPE);
 Preferences prefs;
 
@@ -77,10 +80,7 @@ uint32_t sensorIntervalMs = SENSOR_INTERVAL_SECONDS * 1000UL;
 
 bool powerLossDetected = false;
 
-
-// Time helpers
-
-
+// TIME HELPERS
 uint64_t now_unix() {
   return (uint64_t)time(NULL);
 }
@@ -92,7 +92,7 @@ int currentHour() {
   return tm.tm_hour;
 }
 
-// Handles normal AND cross-midnight ranges
+// Checks if current time is in a range (handles cross-midnight)
 bool inTimeRange(int startH, int endH) {
   int h = currentHour();
   if (startH < endH) return (h >= startH && h < endH);
@@ -104,9 +104,7 @@ bool inWork()    { return inTimeRange(WORK_START, WORK_END); }
 bool inEvening() { return inTimeRange(EVENING_START, EVENING_END); }
 bool inSleep()   { return inTimeRange(SLEEP_START, SLEEP_END); }
 
-
-// Preferences / schedule persistence
-
+// PREFERENCES / SCHEDULE PERSISTENCE
 void saveSchedule() {
   prefs.putInt("m_s", MORNING_START);
   prefs.putInt("m_e", MORNING_END);
@@ -143,9 +141,7 @@ void loadSchedule() {
                 EVENING_START, EVENING_END, SLEEP_START, SLEEP_END);
 }
 
-
-// State persistence
-
+// STATE PERSISTENCE
 void persistState() {
   prefs.putBool("down", blinds_down);
   prefs.putULong("ovr", (unsigned long)override_until_unix);
@@ -157,21 +153,16 @@ void loadState() {
   Serial.printf("Loaded state: down=%d override=%llu\n", blinds_down, (unsigned long long)override_until_unix);
 }
 
-
-// Motor control (BTS7960 style: EN pins HIGH, PWM controls direction)
-
-
+// MOTOR CONTROL
 void motorPulseDown(bool commit = false) {
   if (blinds_down) {
     Serial.println("motorPulseDown: already down");
     return;
   }
 
-  // Ensure driver enabled
   digitalWrite(R_EN, HIGH);
   digitalWrite(L_EN, HIGH);
 
-  // Drive left channel (LPWM) for DOWN
   ledcWrite(MOTOR_PWM_CH_R, 0);
   ledcWrite(MOTOR_PWM_CH_L, 200);
 
@@ -192,11 +183,9 @@ void motorPulseUp(bool commit = false) {
     return;
   }
 
-  // Ensure driver enabled
   digitalWrite(R_EN, HIGH);
   digitalWrite(L_EN, HIGH);
 
-  // Drive right channel (RPWM) for UP
   ledcWrite(MOTOR_PWM_CH_L, 0);
   ledcWrite(MOTOR_PWM_CH_R, 200);
 
@@ -211,9 +200,7 @@ void motorPulseUp(bool commit = false) {
   Serial.println("Motor UP end");
 }
 
-
-// Sensors
-
+// SENSORS
 float readPhotoVoltage() {
   int raw = analogRead(PHOTO_ADC_PIN);
   return (raw / 4095.0f) * 3.3f;
@@ -246,9 +233,7 @@ void doSensorDecision() {
   }
 }
 
-
-// BLE callback - supports SETTIME and SET <BLOCK> hh mm
-
+// BLE CALLBACKS
 class CmdCB : public NimBLECharacteristicCallbacks {
   void onWrite(NimBLECharacteristic* pChar, NimBLEConnInfo&) override {
     String cmd = String(pChar->getValue().c_str());
@@ -279,27 +264,22 @@ class CmdCB : public NimBLECharacteristicCallbacks {
     if (cmd.startsWith("SETTIME ")) {
       int hh, mm;
       if (sscanf(cmd.c_str(), "SETTIME %d %d", &hh, &mm) == 2) {
-        if (hh >= 0 && hh <= 23 && mm >= 0 && mm <= 59) {
-          struct tm t;
-          time_t now = time(NULL);
-          localtime_r(&now, &t);
+        struct tm t;
+        time_t now = time(NULL);
+        localtime_r(&now, &t);
 
-          t.tm_hour = hh;
-          t.tm_min  = mm;
-          t.tm_sec  = 0;
+        t.tm_hour = hh;
+        t.tm_min  = mm;
+        t.tm_sec  = 0;
 
-          time_t newTime = mktime(&t);
-          struct timeval tv = { .tv_sec = newTime, .tv_usec = 0 };
-          settimeofday(&tv, NULL);
+        time_t newTime = mktime(&t);
+        struct timeval tv = { .tv_sec = newTime, .tv_usec = 0 };
+        settimeofday(&tv, NULL);
 
-          // Turn off power-loss LED when time is set
-          digitalWrite(LED_PIN, LOW);
-          powerLossDetected = false;
+        digitalWrite(LED_PIN, LOW); // power-loss LED off
+        powerLossDetected = false;
 
-          Serial.printf("SETTIME applied: %02d:%02d\n", hh, mm);
-        } else {
-          Serial.println("SETTIME: invalid HH MM");
-        }
+        Serial.printf("SETTIME applied: %02d:%02d\n", hh, mm);
       } else {
         Serial.println("SETTIME parse failed");
       }
@@ -307,26 +287,18 @@ class CmdCB : public NimBLECharacteristicCallbacks {
       return;
     }
 
-    // SET <BLOCK> startH endH  e.g. SET WORK 8 16
+    // SET <BLOCK> startH endH
     if (cmd.startsWith("SET ")) {
       char block[16];
       int s, e;
-      // read three tokens: "SET", block, s, e
       if (sscanf(cmd.c_str(), "SET %15s %d %d", block, &s, &e) == 3) {
-        // block is uppercase already
         bool valid = false;
         if (s >= 0 && s <= 23 && e >= 0 && e <= 23) {
-          if (strcmp(block, "MORNING") == 0) {
-            MORNING_START = s; MORNING_END = e; valid = true;
-          } else if (strcmp(block, "WORK") == 0) {
-            WORK_START = s; WORK_END = e; valid = true;
-          } else if (strcmp(block, "EVENING") == 0) {
-            EVENING_START = s; EVENING_END = e; valid = true;
-          } else if (strcmp(block, "SLEEP") == 0) {
-            SLEEP_START = s; SLEEP_END = e; valid = true;
-          } else {
-            Serial.printf("SET: unknown block '%s'\n", block);
-          }
+          if (strcmp(block, "MORNING") == 0) { MORNING_START = s; MORNING_END = e; valid = true; }
+          else if (strcmp(block, "WORK") == 0) { WORK_START = s; WORK_END = e; valid = true; }
+          else if (strcmp(block, "EVENING") == 0) { EVENING_START = s; EVENING_END = e; valid = true; }
+          else if (strcmp(block, "SLEEP") == 0) { SLEEP_START = s; SLEEP_END = e; valid = true; }
+          else { Serial.printf("SET: unknown block '%s'\n", block); }
 
           if (valid) {
             saveSchedule();
@@ -347,18 +319,15 @@ class CmdCB : public NimBLECharacteristicCallbacks {
   }
 };
 
-// Setup / Loop
-
+// SETUP AND LOOP
 void setup() {
   Serial.begin(115200);
   delay(50);
-  Serial.println("\n=== ESP32 Blinds Controller (4-mode) ===");
+  Serial.println("\nESP32 Blinds Controller (4-mode)");
 
-  // LED (power-loss indicator)
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, LOW);
 
-  // Sensor power pins
   pinMode(DHT_POWER_PIN, OUTPUT);
   pinMode(PHOTO_POWER_PIN, OUTPUT);
   digitalWrite(DHT_POWER_PIN, LOW);
@@ -367,49 +336,40 @@ void setup() {
   dht.begin();
   analogSetPinAttenuation(PHOTO_ADC_PIN, ADC_11db);
 
-  // Motor driver pins
   pinMode(R_EN, OUTPUT);
   pinMode(L_EN, OUTPUT);
-  // Ensure EN pins HIGH for BTS7960 style drivers
   digitalWrite(R_EN, HIGH);
   digitalWrite(L_EN, HIGH);
 
-  // Setup PWM channels and attach pins
   ledcSetup(MOTOR_PWM_CH_R, MOTOR_PWM_FREQ, MOTOR_PWM_RES);
   ledcAttachPin(RPWM, MOTOR_PWM_CH_R);
 
   ledcSetup(MOTOR_PWM_CH_L, MOTOR_PWM_FREQ, MOTOR_PWM_RES);
   ledcAttachPin(LPWM, MOTOR_PWM_CH_L);
 
-  // Start with motors stopped
   ledcWrite(MOTOR_PWM_CH_R, 0);
   ledcWrite(MOTOR_PWM_CH_L, 0);
 
-  // Preferences
   prefs.begin(PREF_NS, false);
 
-  // Power-loss detection: if "running" already true in prefs, a reset/power-loss occurred
   if (prefs.getBool("running", false)) {
     powerLossDetected = true;
-    digitalWrite(LED_PIN, HIGH); // indicate power-loss until user sets time
-    Serial.println("Power loss detected (LED on). Reset 'running' flag after user action.");
+    digitalWrite(LED_PIN, HIGH);
+    Serial.println("Power loss detected");
   }
-  // mark running
   prefs.putBool("running", true);
 
-  // Load saved schedule + state
   loadSchedule();
   loadState();
 
-  // BLE setup
- NimBLEDevice::init("Dual Mode Blinds");
-pServer = NimBLEDevice::createServer();
-pServer->setCallbacks(new ServerCB());
+  NimBLEDevice::init("Dual Mode Blinds");
+  pServer = NimBLEDevice::createServer();
+  pServer->setCallbacks(new ServerCB());
 
-NimBLEService* svc = pServer->createService(svcUUID);
+  NimBLEService* svc = pServer->createService(svcUUID);
 
-NimBLECharacteristic* ch =
-  svc->createCharacteristic(cmdUUID, NIMBLE_PROPERTY::WRITE);
+  NimBLECharacteristic* ch =
+    svc->createCharacteristic(cmdUUID, NIMBLE_PROPERTY::WRITE);
   ch->setCallbacks(new CmdCB());
 
   svc->start();
@@ -421,25 +381,22 @@ NimBLECharacteristic* ch =
   pAdv->start();
 
   Serial.println("BLE advertising started as 'Dual Mode Blinds'");
-
   lastSensorMillis = millis() - sensorIntervalMs;
 }
 
 void loop() {
-  // Override expiration
+  // Manual override expiration
   if (override_until_unix && now_unix() > override_until_unix) {
     Serial.println("Manual override expired");
     override_until_unix = 0;
     persistState();
   }
 
-  // Sensor interval
+  // Sensor interval check
   if ((millis() - lastSensorMillis) >= sensorIntervalMs) {
     lastSensorMillis = millis();
 
     if (override_until_unix == 0) {
-      // Behavior: WORK and SLEEP -> forced DOWN
-      // MORNING and EVENING -> sensor-based (UP by default unless sensors indicate DOWN)
       if (inSleep() || inWork()) {
         Serial.println("Mode: FORCED DOWN (sleep/work)");
         if (!blinds_down) motorPulseDown(false);
@@ -447,7 +404,6 @@ void loop() {
         Serial.println("Mode: SENSOR MODE (morning/evening)");
         doSensorDecision();
       } else {
-        // fallback safety: force down
         Serial.println("Mode: Unknown -> forcing DOWN");
         if (!blinds_down) motorPulseDown(false);
       }
