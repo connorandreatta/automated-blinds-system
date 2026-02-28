@@ -57,8 +57,8 @@ Software:
 
 # Media
 
-![Rendered assembly of automated blinds](images/Render.png)
-![Exploded view of blinds](images/ExplodedView.png)
+![Rendered assembly of automated blinds](Images/Render.png)
+![Exploded view of blinds](Images/ExplodedView.png)
 
 # What I learned
 
