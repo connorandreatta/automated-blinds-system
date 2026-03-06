@@ -1,6 +1,7 @@
 # Automated-blinds-system
 ![Rendered assembly of automated blinds](Images/Render.png)
 ![Exploded view of blinds](Images/ExplodedView.png)
+![Electronics](Images/Electronics.png)
 
 First-year Mechanical Engineering design project at the University of Ottawa.  A motorized blinds system designed to automate opening and closing using a microcontroller-based control system.
 
